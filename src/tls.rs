@@ -13,7 +13,7 @@ use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
 
 use crate::transport::Transport;
-use tokio_rustls::rustls::{NoClientAuth, ServerConfig, TLSError};
+use tokio_rustls::rustls::{NoClientAuth, AllowAnyAuthenticatedClient, AllowAnyAnonymousOrAuthenticatedClient, ServerConfig, TLSError, RootCertStore};
 
 /// Represents errors that can occur building the TlsConfig
 #[derive(Debug)]
@@ -50,6 +50,8 @@ impl std::error::Error for TlsConfigError {}
 pub(crate) struct TlsConfigBuilder {
     cert: Box<dyn Read + Send + Sync>,
     key: Box<dyn Read + Send + Sync>,
+    require_client_auth: bool,
+    client_auth_ca_certs: Vec<Box<dyn Read + Send + Sync>>
 }
 
 impl std::fmt::Debug for TlsConfigBuilder {
@@ -64,6 +66,8 @@ impl TlsConfigBuilder {
         TlsConfigBuilder {
             key: Box::new(io::empty()),
             cert: Box::new(io::empty()),
+            require_client_auth: false,
+            client_auth_ca_certs: Vec::new(),
         }
     }
 
@@ -94,6 +98,26 @@ impl TlsConfigBuilder {
     /// sets the Tls certificate via bytes slice
     pub(crate) fn cert(mut self, cert: &[u8]) -> Self {
         self.cert = Box::new(Cursor::new(Vec::from(cert)));
+        self
+    }
+
+    /// Add a CA certificate for client authentication.
+    pub(crate) fn client_auth_ca_cert_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.client_auth_ca_certs.push(Box::new(LazyFile {
+            path: path.as_ref().into(),
+            file: None,
+        }));
+        self
+    }
+
+    /// Add a CA certificate for client authentication.
+    pub(crate) fn client_auth_ca_cert(mut self, cert: &[u8]) -> Self {
+        self.client_auth_ca_certs.push(Box::new(Cursor::new(Vec::from(cert))));
+        self
+    }
+
+    pub(crate) fn require_client_auth(mut self, value: bool) -> Self {
+        self.require_client_auth = value;
         self
     }
 
@@ -134,7 +158,22 @@ impl TlsConfigBuilder {
             }
         };
 
-        let mut config = ServerConfig::new(NoClientAuth::new());
+        let mut root_cert_store = RootCertStore::empty();
+        for cert in self.client_auth_ca_certs {
+            let mut ca_cert_rdr = BufReader::new(cert);
+            root_cert_store.add_pem_file(&mut ca_cert_rdr).
+                map_err(|()| TlsConfigError::CertParseError)?;
+        }
+
+        let auth = if self.require_client_auth {
+            AllowAnyAuthenticatedClient::new(root_cert_store)
+        } else if !root_cert_store.is_empty() {
+            AllowAnyAnonymousOrAuthenticatedClient::new(root_cert_store)
+        } else {
+            NoClientAuth::new()
+        };
+        let mut config = ServerConfig::new(auth);
+
         config
             .set_single_cert(cert, key)
             .map_err(|err| TlsConfigError::InvalidKey(err))?;

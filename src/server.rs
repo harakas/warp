@@ -419,6 +419,18 @@ where
         self.with_tls(|tls| tls.cert_path(path))
     }
 
+    /// Specify the file path to read a client authentication CA certificate.
+    ///
+    /// Multiple certificate files may be specified with repeated calls.
+    pub fn client_auth_ca_cert_path(self, path: impl AsRef<Path>) -> Self {
+        self.with_tls(|tls| tls.client_auth_ca_cert_path(path))
+    }
+
+    /// Require client authentication.
+    pub fn require_client_auth(self, value: bool) -> Self {
+        self.with_tls(|tls| tls.require_client_auth(value))
+    }
+
     /// Specify the in-memory contents of the private key.
     pub fn key(self, key: impl AsRef<[u8]>) -> Self {
         self.with_tls(|tls| tls.key(key.as_ref()))
@@ -427,6 +439,13 @@ where
     /// Specify the in-memory contents of the certificate.
     pub fn cert(self, cert: impl AsRef<[u8]>) -> Self {
         self.with_tls(|tls| tls.cert(cert.as_ref()))
+    }
+
+    /// Specify the in-memory contents of a client authentication CA certificate.
+    ///
+    /// Multiple certificate files may be specified with repeated calls.
+    pub fn client_auth_ca_cert(self, cert: impl AsRef<[u8]>) -> Self {
+        self.with_tls(|tls| tls.client_auth_ca_cert(cert.as_ref()))
     }
 
     fn with_tls<Func>(self, func: Func) -> Self
